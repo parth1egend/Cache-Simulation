@@ -1,0 +1,140 @@
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.*;
+
+
+public class javaproject {
+    private int cacheSize; // Cache size in kilobytes
+    private int associativity; // Associativity of the cache
+    private int blockSize = 64; // Block size in bytes
+    private int setSize; // Number of sets in the cache
+    private int setIndexBits; // Number of set index bits (log2(cachesize))
+    private int offsetBits = 6; // Number of offset bits (log2(blockSize))
+
+    private int[][] cache; // 2D array representing the cache
+    private int[] lruCounter; // Array to keep track of LRU information
+
+    private int totalMisses;
+    private int totalHits;
+    private int[] setMisses;
+    private int[] setHits;
+
+    public javaproject(int cacheSize, int associativity, String traceFilePath) {
+        this.cacheSize = cacheSize;
+        this.associativity = associativity;
+
+        // Calculate the number of sets in the cache
+        setSize = (cacheSize * 1024) / (associativity * blockSize);
+        setIndexBits = (int) (Math.log(setSize) / Math.log(2));
+
+        // Initialize cache and LRU counter
+        cache = new int[setSize][associativity];
+        lruCounter = new int[setSize];
+
+        // Initialize counters
+        totalMisses = 0;
+        totalHits = 0;
+        setMisses = new int[setSize];
+        setHits = new int[setSize];
+
+        // Process the trace file
+        processTraceFile(traceFilePath);
+    }
+
+    private void processTraceFile(String traceFilePath) {
+        try (BufferedReader br = new BufferedReader(new FileReader(traceFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                int address = Integer.parseInt(line, 16);
+                String binary = Integer.toBinaryString(address);
+                String setindex = binary.substring(-(6+setIndexBits), -6);
+                int setIndex = Integer.parseInt(setindex,2);
+                // int setIndex = (address >> offsetBits) & ((1 << setIndexBits) - 1);
+                int tag = address >> (offsetBits + setIndexBits);
+
+                boolean hit = false;
+
+                // Search for the block in the set
+                for (int way = 0; way < associativity; way++) {
+                    if (cache[setIndex][way] == tag) {
+                        hit = true;
+                        setHits[setIndex]++;
+                        totalHits++;
+                        updateLRUCounter(setIndex, way);
+                        break;
+                    }
+                }
+
+                if (!hit) {
+                    totalMisses++;
+                    setMisses[setIndex]++;
+
+                    // Find the LRU block in the set
+                    int lruWay = findLRUWay(setIndex);
+
+                    // Replace the LRU block with the new block
+                    cache[setIndex][lruWay] = tag;
+                    updateLRUCounter(setIndex, lruWay);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void updateLRUCounter(int setIndex, int way) {
+        // Increment the LRU counter for the accessed block and reset others in the same set
+        for (int i = 0; i < associativity; i++) {
+            if (lruCounter[setIndex] <= lruCounter[setIndex] + 1) {
+                lruCounter[setIndex] = lruCounter[setIndex] + 1;
+            } else {
+                lruCounter[setIndex] = 0;
+            }
+        }
+        lruCounter[setIndex] = 0;
+    }
+
+    private int findLRUWay(int setIndex) {
+        int lruWay = 0;
+        int lruCounterValue = lruCounter[setIndex];
+
+        // Find the way with the highest LRU counter value
+        for (int way = 1; way < associativity; way++) {
+            if (lruCounter[setIndex] > lruCounterValue) {
+                lruWay = way;
+                lruCounterValue = lruCounter[setIndex];
+            }
+        }
+
+        return lruWay;
+    }
+
+    private void printResults() {
+        System.out.println("Total Misses: " + totalMisses);
+        System.out.println("Total Hits: " + totalHits);
+        System.out.println("Set-wise Misses:");
+        for (int i = 0; i < setSize; i++) {
+            System.out.println("Set " + i + ": " + setMisses[i]);
+        }
+        System.out.println("Set-wise Hits:");
+        for (int i = 0; i < setSize; i++) {
+            System.out.println("Set " + i + ": " + setHits[i]);
+        }
+    }
+
+    public static void main(String[] args) {
+        if (args.length < 3) {
+            System.out.println("Usage: java javaproject <cacheSize> <associativity> <traceFilePath>");
+            return;
+        }
+
+        int cacheSize = Integer.parseInt(args[0]);
+        int associativity = Integer.parseInt(args[1]);
+        String traceFilePath = args[2];
+
+        javaproject cacheSimulation = new javaproject(cacheSize, associativity, traceFilePath);
+        cacheSimulation.printResults();
+    }
+}
+
